@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';import worker from '../worker/server.mjs';
+const memory=new Map();const env={ADMIN_OWNER_ID:'test-owner',BUCKET:{async get(k){return memory.has(k)?{json:async()=>JSON.parse(memory.get(k))}:null},async put(k,v){memory.set(k,v)},async delete(k){memory.delete(k)}}};
+const req=(route,data,headers={})=>new Request('https://test.example'+route,{method:data?'POST':'GET',headers:{Origin:'https://test.example','Content-Type':'application/json',...headers},body:data?JSON.stringify(data):undefined});
+assert.equal((await worker.fetch(req('/api/admin/setup',{password:'test-only-long-password'}),env)).status,403);
+assert.equal((await worker.fetch(req('/api/admin/setup',{password:'test-only-long-password'},{'oai-authenticated-user-id':'test-owner'}),env)).status,200);
+assert.equal((await worker.fetch(req('/api/admin/login',{username:'Admin',password:'wrong'}),env)).status,401);
+const login=await worker.fetch(req('/api/admin/login',{username:'Admin',password:'test-only-long-password'}),env);assert.equal(login.status,200);const cookie=login.headers.get('set-cookie').split(';')[0];
+assert.equal((await worker.fetch(req('/api/admin/offer',{enabled:false,link:'https://wa.me/919444659236'}),env)).status,401);
+assert.equal((await worker.fetch(req('/api/admin/offer',{enabled:false,link:'https://wa.me/919444659236'},{Cookie:cookie}),env)).status,200);
+assert.equal((await (await worker.fetch(req('/api/offer'),env)).json()).enabled,false);
+assert.equal((await worker.fetch(req('/api/admin/offer',{enabled:true,link:'javascript:alert(1)'},{Cookie:cookie}),env)).status,400);
+await worker.fetch(req('/api/admin/logout',{}, {Cookie:cookie}),env);
+assert.equal((await (await worker.fetch(req('/api/admin/status',null,{Cookie:cookie}),env)).json()).authenticated,false);
+console.log('Passed owner-only setup, password login, protected writes, banner toggle, link validation and session revocation');
